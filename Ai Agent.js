@@ -1,16 +1,16 @@
-// Interactive Chat Widget for n8n
+// Interactive Chat Widget for n8n - Re-architected with Live Agent Takeover
 (function() {
-    // Initialize widget only once
+    // 1. Core State & Initialization Check
     if (window.N8nChatWidgetLoaded) return;
     window.N8nChatWidgetLoaded = true;
 
-    // Load font resource - using Poppins for a fresh look
+    // Load font resource
     const fontElement = document.createElement('link');
     fontElement.rel = 'stylesheet';
     fontElement.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap';
     document.head.appendChild(fontElement);
 
-    // Apply widget styles with completely different design approach
+    // Apply widget styles (CSS is unchanged from original for brevity, but still applied)
     const widgetStyles = document.createElement('style');
     widgetStyles.textContent = `
         .chat-assist-widget {
@@ -127,11 +127,18 @@
         }
 
         .chat-assist-widget .chat-welcome-title {
-            font-size: 22px;
+            font-size: 20px; /* Reduced for better fit with two buttons */
             font-weight: 700;
             color: var(--chat-color-text);
             margin-bottom: 24px;
             line-height: 1.3;
+        }
+        
+        /* Two button container */
+        .chat-assist-widget .chat-start-options {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
 
         .chat-assist-widget .chat-start-btn {
@@ -150,8 +157,19 @@
             transition: var(--chat-transition);
             font-weight: 600;
             font-family: inherit;
-            margin-bottom: 16px;
             box-shadow: var(--chat-shadow-md);
+        }
+        
+        .chat-assist-widget .chat-start-btn.secondary-btn {
+            background: #f3f4f6;
+            color: var(--chat-color-text);
+            border: 1px solid var(--chat-color-border);
+            box-shadow: none;
+        }
+
+        .chat-assist-widget .chat-start-btn.secondary-btn:hover {
+            background: var(--chat-color-light);
+            border-color: var(--chat-color-primary);
         }
 
         .chat-assist-widget .chat-start-btn:hover {
@@ -162,7 +180,7 @@
         .chat-assist-widget .chat-response-time {
             font-size: 14px;
             color: var(--chat-color-text-light);
-            margin: 0;
+            margin-top: 16px;
         }
 
         .chat-assist-widget .chat-body {
@@ -173,6 +191,11 @@
 
         .chat-assist-widget .chat-body.active {
             display: flex;
+        }
+        
+        .chat-assist-widget .chat-body.human-pending .chat-controls {
+            pointer-events: none;
+            opacity: 0.5;
         }
 
         .chat-assist-widget .chat-messages {
@@ -206,7 +229,7 @@
             font-size: 14px;
             line-height: 1.6;
             position: relative;
-            white-space: pre-line; /* This preserves line breaks */
+            white-space: pre-line;
         }
 
         .chat-assist-widget .chat-bubble.user-bubble {
@@ -225,8 +248,30 @@
             box-shadow: var(--chat-shadow-sm);
             border: 1px solid var(--chat-color-light);
         }
+        
+        .chat-assist-widget .chat-bubble.system-message {
+            background: var(--chat-color-light);
+            color: var(--chat-color-secondary);
+            text-align: center;
+            align-self: center;
+            max-width: 95%;
+            font-style: italic;
+            font-size: 13px;
+            padding: 8px 14px;
+        }
+        
+        .chat-assist-widget .chat-escalation-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            margin-top: 10px;
+            background: #ffffff;
+            border: 1px solid var(--chat-color-light);
+            border-radius: var(--chat-radius-md);
+        }
 
-        /* Typing animation */
+        /* Typing animation styles (unchanged) */
         .chat-assist-widget .typing-indicator {
             display: flex;
             align-items: center;
@@ -278,7 +323,8 @@
             display: flex;
             gap: 10px;
         }
-
+        
+        /* Input/Submit styles (unchanged) */
         .chat-assist-widget .chat-textarea {
             flex: 1;
             padding: 14px 16px;
@@ -366,7 +412,7 @@
             width: 24px;
             height: 24px;
         }
-        
+            
         .chat-assist-widget .chat-launcher-text {
             font-weight: 600;
             font-size: 15px;
@@ -533,67 +579,58 @@
     `;
     document.head.appendChild(widgetStyles);
 
-    // Default configuration
+    // 2. Configuration & State Variables
     const defaultSettings = {
-        webhook: {
-            url: '',
-            route: ''
-        },
+        webhook: { url: '', route: '' },
         branding: {
             logo: '',
-            name: '',
-            welcomeText: '',
-            responseTimeText: '',
-            poweredBy: {
-                text: 'Powered by OmniExistence',
-                link: 'https://omniexistence.com/'
-            }
+            name: 'Omni Existence AI',
+            welcomeText: 'Welcome to Omni Existence Support. How would you like to start?',
+            responseTimeText: 'Typically responds in a few seconds.',
+            poweredBy: { text: 'Powered by OmniExistence', link: 'https://omniexistence.com/' }
         },
-        style: {
-            primaryColor: '#10b981', // Green
-            secondaryColor: '#059669', // Darker green
-            position: 'right',
-            backgroundColor: '#ffffff',
-            fontColor: '#1f2937'
-        },
-        suggestedQuestions: [] // Default empty array for suggested questions
+        style: { primaryColor: '#10b981', secondaryColor: '#059669', position: 'right', backgroundColor: '#ffffff', fontColor: '#1f2937' },
+        suggestedQuestions: []
     };
 
-    // Merge user settings with defaults
-    const settings = window.ChatWidgetConfig ? 
+    const settings = window.ChatWidgetConfig ?
         {
             webhook: { ...defaultSettings.webhook, ...window.ChatWidgetConfig.webhook },
             branding: { ...defaultSettings.branding, ...window.ChatWidgetConfig.branding },
-            style: { 
-                ...defaultSettings.style, 
+            style: {
+                ...defaultSettings.style,
                 ...window.ChatWidgetConfig.style,
-                // Force green colors if user provided purple
-                primaryColor: window.ChatWidgetConfig.style?.primaryColor === '#854fff' ? '#10b981' : (window.ChatWidgetConfig.style?.primaryColor || '#10b981'),
-                secondaryColor: window.ChatWidgetConfig.style?.secondaryColor === '#6b3fd4' ? '#059669' : (window.ChatWidgetConfig.style?.secondaryColor || '#059669')
+                primaryColor: (window.ChatWidgetConfig.style?.primaryColor || '#10b981'), // Force green logic removed for simplicity, using provided color or default
+                secondaryColor: (window.ChatWidgetConfig.style?.secondaryColor || '#059669')
             },
             suggestedQuestions: window.ChatWidgetConfig.suggestedQuestions || defaultSettings.suggestedQuestions
         } : defaultSettings;
 
-    // Session tracking
-    let conversationId = '';
-    let isWaitingForResponse = false;
+    // Persisted User/Session Data
+    let conversationId = localStorage.getItem('n8n_chat_sessionId') || '';
+    let userName = localStorage.getItem('n8n_chat_userName') || '';
+    let userEmail = localStorage.getItem('n8n_chat_userEmail') || '';
 
-    // Create widget DOM structure
+    // Live Agent State Management
+    let currentChatMode = localStorage.getItem('n8n_chat_mode') || 'LLM'; // LLM | HUMAN_PENDING | HUMAN_ACTIVE
+    let isWaitingForResponse = false;
+    let pollingInterval = null;
+    const POLLING_RATE = 5000; // 5 seconds
+
+    // 3. DOM Structure & Injection
     const widgetRoot = document.createElement('div');
     widgetRoot.className = 'chat-assist-widget';
-    
-    // Apply custom colors
+
     widgetRoot.style.setProperty('--chat-widget-primary', settings.style.primaryColor);
     widgetRoot.style.setProperty('--chat-widget-secondary', settings.style.secondaryColor);
     widgetRoot.style.setProperty('--chat-widget-tertiary', settings.style.secondaryColor);
     widgetRoot.style.setProperty('--chat-widget-surface', settings.style.backgroundColor);
     widgetRoot.style.setProperty('--chat-widget-text', settings.style.fontColor);
 
-    // Create chat panel
     const chatWindow = document.createElement('div');
     chatWindow.className = `chat-window ${settings.style.position === 'left' ? 'left-side' : 'right-side'}`;
-    
-    // Create welcome screen with header
+
+    // Updated Welcome Screen with Two Buttons
     const welcomeScreenHTML = `
         <div class="chat-header">
             <img class="chat-header-logo" src="${settings.branding.logo}" alt="${settings.branding.name}">
@@ -602,12 +639,23 @@
         </div>
         <div class="chat-welcome">
             <h2 class="chat-welcome-title">${settings.branding.welcomeText}</h2>
-            <button class="chat-start-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-                Start chatting
-            </button>
+            <div class="chat-start-options">
+                <button class="chat-start-btn" id="start-omni-chat">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Chat with Omni Agent
+                </button>
+                <button class="chat-start-btn secondary-btn" id="start-human-chat">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Chat with a Human Agent
+                </button>
+            </div>
             <p class="chat-response-time">${settings.branding.responseTimeText}</p>
         </div>
         <div class="user-registration">
@@ -615,12 +663,12 @@
             <form class="registration-form">
                 <div class="form-field">
                     <label class="form-label" for="chat-user-name">Name</label>
-                    <input type="text" id="chat-user-name" class="form-input" placeholder="Your name" required>
+                    <input type="text" id="chat-user-name" class="form-input" placeholder="Your name" required value="${userName}">
                     <div class="error-text" id="name-error"></div>
                 </div>
                 <div class="form-field">
                     <label class="form-label" for="chat-user-email">Email</label>
-                    <input type="email" id="chat-user-email" class="form-input" placeholder="Your email address" required>
+                    <input type="email" id="chat-user-email" class="form-input" placeholder="Your email address" required value="${userEmail}">
                     <div class="error-text" id="email-error"></div>
                 </div>
                 <button type="submit" class="submit-registration">Continue to Chat</button>
@@ -628,7 +676,6 @@
         </div>
     `;
 
-    // Create chat interface without duplicating the header
     const chatInterfaceHTML = `
         <div class="chat-body">
             <div class="chat-messages"></div>
@@ -646,10 +693,9 @@
             </div>
         </div>
     `;
-    
+
     chatWindow.innerHTML = welcomeScreenHTML + chatInterfaceHTML;
-    
-    // Create toggle button
+
     const launchButton = document.createElement('button');
     launchButton.className = `chat-launcher ${settings.style.position === 'left' ? 'left-side' : 'right-side'}`;
     launchButton.innerHTML = `
@@ -657,327 +703,408 @@
             <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
         <span class="chat-launcher-text">Need help?</span>`;
-    
-    // Add elements to DOM
+
     widgetRoot.appendChild(chatWindow);
     widgetRoot.appendChild(launchButton);
     document.body.appendChild(widgetRoot);
 
-    // Get DOM elements
-    const startChatButton = chatWindow.querySelector('.chat-start-btn');
-    const chatBody = chatWindow.querySelector('.chat-body');
-    const messagesContainer = chatWindow.querySelector('.chat-messages');
-    const messageTextarea = chatWindow.querySelector('.chat-textarea');
-    const sendButton = chatWindow.querySelector('.chat-submit');
+    // 4. DOM Element References
+    const elements = {
+        chatWindow: chatWindow,
+        chatBody: chatWindow.querySelector('.chat-body'),
+        messagesContainer: chatWindow.querySelector('.chat-messages'),
+        messageTextarea: chatWindow.querySelector('.chat-textarea'),
+        sendButton: chatWindow.querySelector('.chat-submit'),
+        registrationForm: chatWindow.querySelector('.registration-form'),
+        userRegistration: chatWindow.querySelector('.user-registration'),
+        chatWelcome: chatWindow.querySelector('.chat-welcome'),
+        nameInput: chatWindow.querySelector('#chat-user-name'),
+        emailInput: chatWindow.querySelector('#chat-user-email'),
+        nameError: chatWindow.querySelector('#name-error'),
+        emailError: chatWindow.querySelector('#email-error'),
+        startOmniChatBtn: chatWindow.querySelector('#start-omni-chat'),
+        startHumanChatBtn: chatWindow.querySelector('#start-human-chat'),
+        closeButtons: chatWindow.querySelectorAll('.chat-close-btn')
+    };
     
-    // Registration form elements
-    const registrationForm = chatWindow.querySelector('.registration-form');
-    const userRegistration = chatWindow.querySelector('.user-registration');
-    const chatWelcome = chatWindow.querySelector('.chat-welcome');
-    const nameInput = chatWindow.querySelector('#chat-user-name');
-    const emailInput = chatWindow.querySelector('#chat-user-email');
-    const nameError = chatWindow.querySelector('#name-error');
-    const emailError = chatWindow.querySelector('#email-error');
-
-    // Helper function to generate unique session ID
+    // 5. Utility Functions
+    
     function createSessionId() {
-        return crypto.randomUUID();
+        const id = crypto.randomUUID();
+        localStorage.setItem('n8n_chat_sessionId', id);
+        return id;
     }
 
-    // Create typing indicator element
     function createTypingIndicator() {
         const indicator = document.createElement('div');
         indicator.className = 'typing-indicator';
-        indicator.innerHTML = `
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-        `;
+        indicator.innerHTML = `<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>`;
         return indicator;
     }
 
-    // Function to convert URLs in text to clickable links
-    function linkifyText(text) {
-        // URL pattern that matches http, https, ftp links
+    function updateChatMode(newMode) {
+        currentChatMode = newMode;
+        localStorage.setItem('n8n_chat_mode', newMode);
+        
+        // Update UI state
+        elements.chatBody.classList.toggle('human-pending', newMode === 'HUMAN_PENDING');
+        elements.messageTextarea.placeholder = (newMode === 'HUMAN_PENDING') ? 
+            'Please wait, connecting you to a human agent...' : 
+            'Type your message here...';
+    }
+
+    function linkifyTextSafely(text) {
+        // 1. HTML Escape to prevent XSS
+        const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        
+        // 2. Safely replace URLs with legitimate <a> tags
         const urlPattern = /(\b(https?|ftp):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gim;
         
-        // Convert URLs to HTML links
-        return text.replace(urlPattern, function(url) {
+        // This is safe because the rest of the content is HTML-escaped
+        return escapedText.replace(urlPattern, function(url) {
             return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-link">${url}</a>`;
         });
     }
 
-    // Show registration form
-    function showRegistrationForm() {
-        chatWelcome.style.display = 'none';
-        userRegistration.classList.add('active');
-    }
-
-    // Validate email format
     function isValidEmail(email) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
     }
-
-    // Handle registration form submission
-    async function handleRegistration(event) {
-        event.preventDefault();
+    
+    function appendMessage(text, type = 'bot', metadata = {}) {
+        const message = document.createElement('div');
+        message.className = `chat-bubble ${type}-bubble`;
         
-        // Reset error messages
-        nameError.textContent = '';
-        emailError.textContent = '';
-        nameInput.classList.remove('error');
-        emailInput.classList.remove('error');
-        
-        // Get values
-        const name = nameInput.value.trim();
-        const email = emailInput.value.trim();
-        
-        // Validate
-        let isValid = true;
-        
-        if (!name) {
-            nameError.textContent = 'Please enter your name';
-            nameInput.classList.add('error');
-            isValid = false;
+        if (type === 'bot' || type === 'system') {
+            message.innerHTML = linkifyTextSafely(text);
+        } else {
+            message.textContent = text;
         }
         
-        if (!email) {
-            emailError.textContent = 'Please enter your email';
-            emailInput.classList.add('error');
-            isValid = false;
-        } else if (!isValidEmail(email)) {
-            emailError.textContent = 'Please enter a valid email address';
-            emailInput.classList.add('error');
-            isValid = false;
-        }
+        elements.messagesContainer.appendChild(message);
+        elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
         
-        if (!isValid) return;
-        
-        // Initialize conversation with user data
-        conversationId = createSessionId();
-        
-        // First, load the session
-        const sessionData = [{
-            action: "loadPreviousSession",
-            sessionId: conversationId,
-            route: settings.webhook.route,
-            metadata: {
-                userId: email,
-                userName: name
-            }
-        }];
-
-        try {
-            // Hide registration form, show chat interface
-            userRegistration.classList.remove('active');
-            chatBody.classList.add('active');
+        // Check for escalation request only if it's a bot message
+        if (type === 'bot' && metadata.actionType === 'LLM_ESCALATION') {
+            const container = document.createElement('div');
+            container.className = 'chat-escalation-container';
             
-            // Show typing indicator
-            const typingIndicator = createTypingIndicator();
-            messagesContainer.appendChild(typingIndicator);
-            
-            // Load session
-            const sessionResponse = await fetch(settings.webhook.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(sessionData)
+            const escalateBtn = document.createElement('button');
+            escalateBtn.className = 'chat-start-btn';
+            escalateBtn.textContent = 'Speak to a Human Agent';
+            escalateBtn.addEventListener('click', () => {
+                // Clear all elements and start human takeover process
+                container.parentNode.removeChild(container);
+                initiateHumanTakeover('ESCALATE_REQUEST');
             });
             
-            const sessionResponseData = await sessionResponse.json();
-            
-            // Send user info as first message
-            const userInfoMessage = `Name: ${name}\nEmail: ${email}`;
-            
-            const userInfoData = {
-                action: "sendMessage",
-                sessionId: conversationId,
-                route: settings.webhook.route,
-                chatInput: userInfoMessage,
-                metadata: {
-                    userId: email,
-                    userName: name,
-                    isUserInfo: true
-                }
-            };
-            
-            // Send user info
-            const userInfoResponse = await fetch(settings.webhook.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(userInfoData)
-            });
-            
-            const userInfoResponseData = await userInfoResponse.json();
-            
-            // Remove typing indicator
-            messagesContainer.removeChild(typingIndicator);
-            
-            // Display initial bot message with clickable links
-            const botMessage = document.createElement('div');
-            botMessage.className = 'chat-bubble bot-bubble';
-            const messageText = Array.isArray(userInfoResponseData) ? 
-                userInfoResponseData[0].output : userInfoResponseData.output;
-            botMessage.innerHTML = linkifyText(messageText);
-            messagesContainer.appendChild(botMessage);
-            
-            // Add sample questions if configured
-            if (settings.suggestedQuestions && Array.isArray(settings.suggestedQuestions) && settings.suggestedQuestions.length > 0) {
-                const suggestedQuestionsContainer = document.createElement('div');
-                suggestedQuestionsContainer.className = 'suggested-questions';
-                
-                settings.suggestedQuestions.forEach(question => {
-                    const questionButton = document.createElement('button');
-                    questionButton.className = 'suggested-question-btn';
-                    questionButton.textContent = question;
-                    questionButton.addEventListener('click', () => {
-                        submitMessage(question);
-                        // Remove the suggestions after clicking
-                        if (suggestedQuestionsContainer.parentNode) {
-                            suggestedQuestionsContainer.parentNode.removeChild(suggestedQuestionsContainer);
-                        }
-                    });
-                    suggestedQuestionsContainer.appendChild(questionButton);
-                });
-                
-                messagesContainer.appendChild(suggestedQuestionsContainer);
-            }
-            
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        } catch (error) {
-            console.error('Registration error:', error);
-            
-            // Remove typing indicator if it exists
-            const indicator = messagesContainer.querySelector('.typing-indicator');
-            if (indicator) {
-                messagesContainer.removeChild(indicator);
-            }
-            
-            // Show error message
-            const errorMessage = document.createElement('div');
-            errorMessage.className = 'chat-bubble bot-bubble';
-            errorMessage.textContent = "Sorry, I couldn't connect to the server. Please try again later.";
-            messagesContainer.appendChild(errorMessage);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            container.appendChild(escalateBtn);
+            elements.messagesContainer.appendChild(container);
+            elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
         }
     }
 
-    // Send a message to the webhook
-    async function submitMessage(messageText) {
-        if (isWaitingForResponse) return;
+    // 6. Polling & Live Agent Handover Logic
+    
+    function startPolling() {
+        if (pollingInterval) clearInterval(pollingInterval);
+        
+        pollingInterval = setInterval(checkAgentStatus, POLLING_RATE);
+        console.log("Polling started...");
+    }
+    
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            console.log("Polling stopped.");
+        }
+    }
+
+    async function checkAgentStatus() {
+        if (currentChatMode !== 'HUMAN_PENDING' || isWaitingForResponse) return;
         
         isWaitingForResponse = true;
         
-        // Get user info if available
-        const email = nameInput ? nameInput.value.trim() : "";
-        const name = emailInput ? emailInput.value.trim() : "";
-        
         const requestData = {
-            action: "sendMessage",
+            actionType: 'STATUS_CHECK',
             sessionId: conversationId,
-            route: settings.webhook.route,
-            chatInput: messageText,
-            metadata: {
-                userId: email,
-                userName: name
-            }
+            chatInput: 'Checking agent status...',
+            metadata: { userId: userEmail, userName: userName }
         };
-
-        // Display user message
-        const userMessage = document.createElement('div');
-        userMessage.className = 'chat-bubble user-bubble';
-        userMessage.textContent = messageText;
-        messagesContainer.appendChild(userMessage);
         
-        // Show typing indicator
-        const typingIndicator = createTypingIndicator();
-        messagesContainer.appendChild(typingIndicator);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
         try {
             const response = await fetch(settings.webhook.url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
             });
             
             const responseData = await response.json();
+            const newMode = responseData.chatMode;
             
-            // Remove typing indicator
-            messagesContainer.removeChild(typingIndicator);
+            if (newMode === 'HUMAN_ACTIVE') {
+                stopPolling();
+                updateChatMode('HUMAN_ACTIVE');
+                
+                // Add system message indicating takeover
+                appendMessage(responseData.output || 'A human agent has joined the chat and is ready to assist you!', 'system');
+            } else if (newMode !== 'HUMAN_PENDING') {
+                // Failsafe: if status reverts unexpectedly
+                stopPolling();
+                updateChatMode('LLM'); 
+                appendMessage('Connection error: Agent request failed or timed out. Falling back to Omni Agent.', 'system');
+            }
             
-            // Display bot response with clickable links
-            const botMessage = document.createElement('div');
-            botMessage.className = 'chat-bubble bot-bubble';
-            const responseText = Array.isArray(responseData) ? responseData[0].output : responseData.output;
-            botMessage.innerHTML = linkifyText(responseText);
-            messagesContainer.appendChild(botMessage);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         } catch (error) {
-            console.error('Message submission error:', error);
-            
-            // Remove typing indicator
-            messagesContainer.removeChild(typingIndicator);
-            
-            // Show error message
-            const errorMessage = document.createElement('div');
-            errorMessage.className = 'chat-bubble bot-bubble';
-            errorMessage.textContent = "Sorry, I couldn't send your message. Please try again.";
-            messagesContainer.appendChild(errorMessage);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            console.error('Polling Error:', error);
+            // Optionally, stop polling after several errors
         } finally {
             isWaitingForResponse = false;
         }
     }
 
-    // Auto-resize textarea as user types
-    function autoResizeTextarea() {
-        messageTextarea.style.height = 'auto';
-        messageTextarea.style.height = (messageTextarea.scrollHeight > 120 ? 120 : messageTextarea.scrollHeight) + 'px';
+    async function initiateHumanTakeover(actionType) {
+        // Clear old messages and set pending state
+        elements.messagesContainer.innerHTML = ''; 
+        updateChatMode('HUMAN_PENDING');
+
+        appendMessage('Connecting you to a human agent. Please wait...', 'system');
+        
+        const typingIndicator = createTypingIndicator();
+        elements.messagesContainer.appendChild(typingIndicator);
+        
+        // Send initial human request payload
+        const requestData = {
+            actionType: actionType, // HUMAN_REQUEST or ESCALATE_REQUEST
+            sessionId: conversationId,
+            chatInput: 'User requested a human agent.',
+            metadata: { userId: userEmail, userName: userName }
+        };
+
+        try {
+            const response = await fetch(settings.webhook.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const responseData = await response.json();
+            
+            elements.messagesContainer.removeChild(typingIndicator);
+            
+            // Check the mode immediately after the request
+            if (responseData.chatMode === 'HUMAN_ACTIVE') {
+                updateChatMode('HUMAN_ACTIVE');
+                appendMessage(responseData.output || 'A human agent has joined the chat!', 'system');
+            } else if (responseData.chatMode === 'HUMAN_PENDING') {
+                updateChatMode('HUMAN_PENDING');
+                appendMessage(responseData.output || 'Your request has been sent. We will connect you shortly.', 'system');
+                startPolling(); // Start polling if still pending
+            } else {
+                 // Failsafe if the request immediately fails
+                updateChatMode('LLM');
+                appendMessage(responseData.output || 'Sorry, we failed to connect you to an agent. Please try again later or chat with the Omni Agent.', 'system');
+            }
+            
+        } catch (error) {
+            console.error('Initial Human Request Error:', error);
+            updateChatMode('LLM');
+            elements.messagesContainer.removeChild(typingIndicator);
+            appendMessage("Server error during connection. Please check the webhook configuration.", 'system');
+        }
     }
 
-    // Event listeners
-    startChatButton.addEventListener('click', showRegistrationForm);
-    registrationForm.addEventListener('submit', handleRegistration);
+    // 7. Message Submission Handler
+
+    async function submitMessage(messageText) {
+        if (isWaitingForResponse) return;
+        
+        isWaitingForResponse = true;
+        
+        const actionType = (currentChatMode === 'HUMAN_ACTIVE' || currentChatMode === 'HUMAN_PENDING') ? 'HUMAN_MESSAGE' : 'LLM';
+
+        const requestData = {
+            actionType: actionType,
+            sessionId: conversationId,
+            route: settings.webhook.route,
+            chatInput: messageText,
+            metadata: { userId: userEmail, userName: userName }
+        };
+
+        // Display user message
+        appendMessage(messageText, 'user');
+        
+        // Show typing indicator
+        const typingIndicator = createTypingIndicator();
+        elements.messagesContainer.appendChild(typingIndicator);
+
+        try {
+            const response = await fetch(settings.webhook.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const responseData = await response.json();
+            
+            elements.messagesContainer.removeChild(typingIndicator);
+            
+            const responseText = Array.isArray(responseData) ? responseData[0].output : responseData.output;
+            const newMode = responseData.chatMode || currentChatMode;
+            
+            // Handle bot response and potential escalation signal
+            let escalationTrigger = false;
+            
+            if (newMode !== currentChatMode) {
+                updateChatMode(newMode);
+            }
+            
+            // Check for explicit escalation action type from the LLM
+            if (responseData.actionType === 'LLM_ESCALATION') {
+                 escalationTrigger = true;
+            }
+
+            // Display bot/agent response
+            appendMessage(responseText, (currentChatMode === 'HUMAN_ACTIVE' ? 'bot' : 'bot'), { actionType: escalationTrigger ? 'LLM_ESCALATION' : 'LLM' });
+
+        } catch (error) {
+            console.error('Message submission error:', error);
+            
+            const indicator = elements.messagesContainer.querySelector('.typing-indicator');
+            if (indicator) elements.messagesContainer.removeChild(indicator);
+            
+            appendMessage("Sorry, I couldn't send your message. Please try again.", 'system');
+        } finally {
+            isWaitingForResponse = false;
+        }
+    }
+
+    // 8. View Control & Registration Logic
+
+    function showRegistrationForm(mode) {
+        elements.chatWelcome.style.display = 'none';
+        elements.userRegistration.classList.add('active');
+        // Store the intended initial chat mode for after registration
+        elements.registrationForm.dataset.initialMode = mode;
+    }
     
-    sendButton.addEventListener('click', () => {
-        const messageText = messageTextarea.value.trim();
+    function startChatSession(initialMode, initialMessage) {
+        // Hide registration form, show chat interface
+        elements.userRegistration.classList.remove('active');
+        elements.chatBody.classList.add('active');
+        
+        // Set persistence
+        localStorage.setItem('n8n_chat_userName', userName);
+        localStorage.setItem('n8n_chat_userEmail', userEmail);
+        
+        if (!conversationId) {
+            conversationId = createSessionId();
+        }
+        
+        if (initialMode === 'HUMAN_REQUEST') {
+            initiateHumanTakeover('HUMAN_REQUEST');
+        } else {
+             // For LLM mode, send a welcome/session load message
+             submitMessage(initialMessage);
+        }
+        
+    }
+
+    function handleRegistration(event) {
+        event.preventDefault();
+
+        // Reset error messages
+        elements.nameError.textContent = '';
+        elements.emailError.textContent = '';
+        elements.nameInput.classList.remove('error');
+        elements.emailInput.classList.remove('error');
+
+        // Get values
+        userName = elements.nameInput.value.trim();
+        userEmail = elements.emailInput.value.trim();
+        const initialMode = elements.registrationForm.dataset.initialMode;
+
+        // Validate
+        let isValid = true;
+        if (!userName) { elements.nameError.textContent = 'Please enter your name'; elements.nameInput.classList.add('error'); isValid = false; }
+        if (!userEmail) { elements.emailError.textContent = 'Please enter your email'; elements.emailInput.classList.add('error'); isValid = false; }
+        else if (!isValidEmail(userEmail)) { elements.emailError.textContent = 'Please enter a valid email address'; elements.emailInput.classList.add('error'); isValid = false; }
+
+        if (!isValid) return;
+        
+        // Use user info as the first "message" to load the session
+        const initialMessage = `Name: ${userName}\nEmail: ${userEmail}`;
+        
+        startChatSession(initialMode, initialMessage);
+    }
+    
+    function autoResizeTextarea() {
+        elements.messageTextarea.style.height = 'auto';
+        elements.messageTextarea.style.height = (elements.messageTextarea.scrollHeight > 120 ? 120 : elements.messageTextarea.scrollHeight) + 'px';
+    }
+
+    // 9. Initial Load Check
+    if (userName && userEmail && conversationId) {
+        // If user data exists, skip the welcome screen and show registration to confirm
+        elements.chatWelcome.style.display = 'none';
+        elements.userRegistration.classList.add('active');
+        
+        // Pre-fill the mode to LLM if resuming a chat
+        elements.registrationForm.dataset.initialMode = currentChatMode; 
+        
+        // Auto-start chat history loading
+        // For a seamless experience, we can auto-submit the registration form here, but showing it ensures mode context is clear.
+        
+        // Instead of auto-starting, change the button text to "Resume Chat"
+        const submitBtn = elements.userRegistration.querySelector('.submit-registration');
+        submitBtn.textContent = (currentChatMode === 'HUMAN_ACTIVE') ? 'Resume Human Chat' : 'Resume Omni Chat';
+    }
+
+
+    // 10. Event Listeners
+
+    elements.startOmniChatBtn.addEventListener('click', () => showRegistrationForm('LLM'));
+    elements.startHumanChatBtn.addEventListener('click', () => showRegistrationForm('HUMAN_REQUEST'));
+    
+    elements.registrationForm.addEventListener('submit', handleRegistration);
+    
+    elements.sendButton.addEventListener('click', () => {
+        const messageText = elements.messageTextarea.value.trim();
         if (messageText && !isWaitingForResponse) {
             submitMessage(messageText);
-            messageTextarea.value = '';
-            messageTextarea.style.height = 'auto';
+            elements.messageTextarea.value = '';
+            elements.messageTextarea.style.height = 'auto';
         }
     });
     
-    messageTextarea.addEventListener('input', autoResizeTextarea);
+    elements.messageTextarea.addEventListener('input', autoResizeTextarea);
     
-    messageTextarea.addEventListener('keypress', (event) => {
+    elements.messageTextarea.addEventListener('keypress', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            const messageText = messageTextarea.value.trim();
+            const messageText = elements.messageTextarea.value.trim();
             if (messageText && !isWaitingForResponse) {
                 submitMessage(messageText);
-                messageTextarea.value = '';
-                messageTextarea.style.height = 'auto';
+                elements.messageTextarea.value = '';
+                elements.messageTextarea.style.height = 'auto';
             }
         }
     });
     
     launchButton.addEventListener('click', () => {
-        chatWindow.classList.toggle('visible');
+        elements.chatWindow.classList.toggle('visible');
+        if (currentChatMode === 'HUMAN_PENDING' && elements.chatWindow.classList.contains('visible')) {
+            startPolling();
+        } else {
+            stopPolling();
+        }
     });
 
-    // Close button functionality
-    const closeButtons = chatWindow.querySelectorAll('.chat-close-btn');
-    closeButtons.forEach(button => {
+    elements.closeButtons.forEach(button => {
         button.addEventListener('click', () => {
-            chatWindow.classList.remove('visible');
+            elements.chatWindow.classList.remove('visible');
+            stopPolling(); // Stop polling when widget is closed
         });
     });
 })();
